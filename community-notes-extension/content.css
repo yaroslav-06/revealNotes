@@ -168,31 +168,38 @@
   align-items: center;
   gap: 8px;
 }
-.cn-upvote {
+.cn-votes {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 4px;
+  gap: 0;
   border: 1px solid #222238;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.cn-vote-btn {
   background: none;
+  border: none;
   color: #444460;
   font-size: 11px;
-  font-weight: 600;
+  padding: 3px 8px;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
 }
-.cn-upvote:hover:not(.cn-voted):not(.cn-disabled) {
-  border-color: #7c6af7;
-  color: #7c6af7;
-  background: #7c6af710;
+.cn-vote-btn:hover:not(:disabled) { background: #1a1a2e; color: #aaaacc; }
+.cn-vote-btn:disabled { cursor: default; opacity: 0.4; }
+.cn-vote-btn.cn-voted-up   { color: #7c6af7; background: #7c6af715; }
+.cn-vote-btn.cn-voted-down { color: #e05c8a; background: #e05c8a15; }
+.cn-score {
+  font-size: 11px;
+  font-weight: 700;
+  color: #888899;
+  padding: 0 6px;
+  border-left: 1px solid #222238;
+  border-right: 1px solid #222238;
+  min-width: 24px;
+  text-align: center;
 }
-.cn-upvote.cn-voted {
-  border-color: #7c6af750;
-  color: #7c6af7;
-  cursor: default;
-}
-.cn-upvote.cn-disabled { cursor: default; opacity: 0.5; }
 .cn-vote-hint { font-size: 10px; color: #333355; }
 
 .cn-empty {

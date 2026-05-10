@@ -3,107 +3,59 @@
 
   const PAGE_URL = window.location.origin + window.location.pathname;
 
-  // ── Firestore helpers ────────────────────────────────────────────────────
+  // ── API ──────────────────────────────────────────────────────────────────
 
-  async function fetchNotes() {
-    const res = await fetch(`${FB_FIRESTORE_URL}:runQuery`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        structuredQuery: {
-          from: [{ collectionId: 'notes' }],
-          where: {
-            fieldFilter: {
-              field: { fieldPath: 'url' },
-              op: 'EQUAL',
-              value: { stringValue: PAGE_URL }
-            }
-          },
-          limit: 100
-        }
-      })
-    });
-    const rows = await res.json();
-    return rows
-      .filter(r => r.document)
-      .map(r => {
-        const f = r.document.fields;
-        return {
-          docPath: r.document.name,
-          body: f.body?.stringValue || '',
-          university: f.university?.stringValue || '?',
-          email: f.email?.stringValue || '',
-          createdAt: f.createdAt?.timestampValue || '',
-          upvotes: parseInt(f.upvotes?.integerValue || '0'),
-          upvotedBy: (f.upvotedBy?.arrayValue?.values || []).map(v => v.stringValue)
-        };
-      });
+  async function apiFetchNotes() {
+    const res = await fetch(`${API_BASE}/notes?url=${encodeURIComponent(PAGE_URL)}`);
+    if (!res.ok) throw new Error('Failed to load notes');
+    return res.json(); // Note[]
   }
 
-  async function postNote(body, user) {
-    const res = await fetch(`${FB_FIRESTORE_URL}/notes`, {
+  async function apiPostNote(token, body) {
+    const res = await fetch(`${API_BASE}/notes`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${user.idToken}`
+        'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({
-        fields: {
-          url:        { stringValue: PAGE_URL },
-          body:       { stringValue: body },
-          university: { stringValue: user.university },
-          email:      { stringValue: user.email },
-          createdAt:  { timestampValue: new Date().toISOString() },
-          upvotes:    { integerValue: '0' },
-          upvotedBy:  { arrayValue: { values: [] } }
-        }
-      })
+      body: JSON.stringify({ url: PAGE_URL, body })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error?.message || 'Failed to post note');
-    }
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to post note');
+    return data;
   }
 
-  async function upvoteNote(docPath, user) {
-    const projectId = FB_PROJECT_ID;
-    const res = await fetch(
-      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.idToken}`
-        },
-        body: JSON.stringify({
-          writes: [{
-            transform: {
-              document: docPath,
-              fieldTransforms: [
-                {
-                  fieldPath: 'upvotes',
-                  increment: { integerValue: '1' }
-                },
-                {
-                  fieldPath: 'upvotedBy',
-                  appendMissingElements: {
-                    values: [{ stringValue: user.uid }]
-                  }
-                }
-              ]
-            }
-          }]
-        })
-      }
-    );
+  async function apiVote(token, noteId, value) {
+    const res = await fetch(`${API_BASE}/notes/${noteId}/vote`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ value })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to vote');
+  }
+
+  async function apiRemoveVote(token, noteId) {
+    const res = await fetch(`${API_BASE}/notes/${noteId}/vote`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error?.message || 'Failed to upvote');
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to remove vote');
     }
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+
+  function extractUniversity(email) {
+    const domain = (email || '').split('@')[1] || '';
+    const parts = domain.replace('.edu', '').split('.');
+    return (parts[parts.length - 1] || parts[0] || '?').toUpperCase();
+  }
 
   function timeAgo(iso) {
     if (!iso) return '';
@@ -127,67 +79,96 @@
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function sortNotes(notes, by) {
-    return [...notes].sort((a, b) =>
+  function sortNotes(arr, by) {
+    return [...arr].sort((a, b) =>
       by === 'votes'
-        ? b.upvotes - a.upvotes
+        ? b.score - a.score
         : new Date(b.createdAt) - new Date(a.createdAt)
     );
   }
 
+  // ── Vote state (tracked in memory per session) ───────────────────────────
+  // Map<noteId, 1 | -1 | null>
+  const userVotes = new Map();
+
   // ── Render note card ─────────────────────────────────────────────────────
 
   function renderNote(note, user) {
-    const color = uniColor(note.university);
-    const hasVoted = user && note.upvotedBy.includes(user.uid);
-    const canVote = user && !hasVoted;
+    const uni = extractUniversity(note.authorEmail);
+    const color = uniColor(uni);
+    const myVote = userVotes.get(note.id) ?? null;
+    const canVote = !!user;
 
     const el = document.createElement('div');
     el.className = 'cn-note';
+    el.dataset.id = note.id;
+
     el.innerHTML = `
       <div class="cn-note-top">
-        <div class="cn-chip" style="background:${color}18;color:${color};border-color:${color}40">
-          ${note.university}
-        </div>
+        <div class="cn-chip" style="background:${color}18;color:${color};border-color:${color}40">${uni}</div>
         <span class="cn-time">${timeAgo(note.createdAt)}</span>
       </div>
       <div class="cn-body">${escapeHtml(note.body)}</div>
       <div class="cn-note-footer">
-        <button class="cn-upvote ${hasVoted ? 'cn-voted' : ''} ${!user ? 'cn-disabled' : ''}"
-          data-path="${note.docPath}" title="${!user ? 'Sign in to vote' : hasVoted ? 'Already voted' : 'Upvote'}">
-          ▲ <span class="cn-vote-count">${note.upvotes}</span>
-        </button>
-        ${!user ? '<span class="cn-vote-hint">sign in to vote</span>' : ''}
+        <div class="cn-votes">
+          <button class="cn-vote-btn cn-up ${myVote === 1 ? 'cn-voted-up' : ''}"
+            data-note="${note.id}" data-val="1"
+            ${!canVote ? 'disabled title="Sign in to vote"' : ''}>▲</button>
+          <span class="cn-score">${note.score}</span>
+          <button class="cn-vote-btn cn-down ${myVote === -1 ? 'cn-voted-down' : ''}"
+            data-note="${note.id}" data-val="-1"
+            ${!canVote ? 'disabled title="Sign in to vote"' : ''}>▼</button>
+        </div>
+        ${!canVote ? '<span class="cn-vote-hint">sign in to vote</span>' : ''}
       </div>
     `;
 
-    const btn = el.querySelector('.cn-upvote');
     if (canVote) {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          await upvoteNote(note.docPath, user);
-          note.upvotes++;
-          note.upvotedBy.push(user.uid);
-          btn.classList.add('cn-voted');
-          btn.querySelector('.cn-vote-count').textContent = note.upvotes;
-        } catch (e) {
-          btn.disabled = false;
-        }
+      el.querySelectorAll('.cn-vote-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const val = parseInt(btn.dataset.val);
+          const noteId = parseInt(btn.dataset.note);
+          const current = userVotes.get(noteId) ?? null;
+
+          const upBtn   = el.querySelector('.cn-up');
+          const downBtn = el.querySelector('.cn-down');
+          const scoreEl = el.querySelector('.cn-score');
+
+          try {
+            if (current === val) {
+              // Toggle off
+              await apiRemoveVote(user.token, noteId);
+              note.score -= val;
+              userVotes.set(noteId, null);
+              upBtn.classList.remove('cn-voted-up');
+              downBtn.classList.remove('cn-voted-down');
+            } else {
+              // New vote or flip
+              await apiVote(user.token, noteId, val);
+              if (current !== null) note.score -= current; // undo previous
+              note.score += val;
+              userVotes.set(noteId, val);
+              upBtn.classList.toggle('cn-voted-up', val === 1);
+              downBtn.classList.toggle('cn-voted-down', val === -1);
+            }
+            scoreEl.textContent = note.score;
+          } catch (e) {
+            console.error('Vote error:', e.message);
+          }
+        });
       });
     }
 
     return el;
   }
 
-  // ── Build sidebar HTML ───────────────────────────────────────────────────
+  // ── Build sidebar ────────────────────────────────────────────────────────
 
   const root = document.createElement('div');
   root.id = 'cn-root';
   root.innerHTML = `
     <div id="cn-toggle" title="Community Notes">
-      📝
-      <span id="cn-count-badge" class="cn-hidden"></span>
+      📝<span id="cn-count-badge" class="cn-hidden"></span>
     </div>
 
     <div id="cn-sidebar">
@@ -216,7 +197,7 @@
           </div>
         </div>
         <div id="cn-login-prompt">
-          🎓 <a id="cn-login-link">Sign in with .edu</a> to add notes
+          🎓 Sign in with your <strong>.edu email</strong> to add notes
         </div>
       </div>
     </div>
@@ -245,8 +226,8 @@
   function renderList() {
     const list = document.getElementById('cn-notes-list');
     const sorted = sortNotes(notes, sortBy);
-    const countEl = document.getElementById('cn-note-count');
-    countEl.textContent = notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : '';
+    document.getElementById('cn-note-count').textContent =
+      notes.length ? `${notes.length} note${notes.length !== 1 ? 's' : ''}` : '';
 
     if (!sorted.length) {
       list.innerHTML = `<div class="cn-empty">No notes yet — be the first.</div>`;
@@ -257,7 +238,7 @@
   }
 
   function renderCompose() {
-    const form = document.getElementById('cn-compose-form');
+    const form   = document.getElementById('cn-compose-form');
     const prompt = document.getElementById('cn-login-prompt');
     if (user) { form.style.display = 'flex'; prompt.style.display = 'none'; }
     else       { form.style.display = 'none'; prompt.style.display = 'block'; }
@@ -272,7 +253,7 @@
   async function loadNotes() {
     document.getElementById('cn-notes-list').innerHTML = `<div class="cn-empty">Loading…</div>`;
     try {
-      notes = await fetchNotes();
+      notes = await apiFetchNotes();
       renderList();
       updateBadge();
     } catch {
@@ -280,7 +261,7 @@
     }
   }
 
-  // ── Sidebar open/close ───────────────────────────────────────────────────
+  // ── Sidebar open / close ─────────────────────────────────────────────────
 
   function openSidebar() {
     open = true;
@@ -311,7 +292,7 @@
 
   // ── Post note ────────────────────────────────────────────────────────────
 
-  const textarea = document.getElementById('cn-textarea');
+  const textarea  = document.getElementById('cn-textarea');
   const charCount = document.getElementById('cn-char-count');
   const submitBtn = document.getElementById('cn-submit');
 
@@ -325,7 +306,7 @@
     submitBtn.disabled = true;
     submitBtn.textContent = '…';
     try {
-      await postNote(body, user);
+      await apiPostNote(user.token, body);
       textarea.value = '';
       charCount.textContent = '0 / 500';
       await loadNotes();
@@ -343,8 +324,8 @@
     if (msg.type === 'TOGGLE_SIDEBAR') open ? closeSidebar() : openSidebar();
   });
 
-  // ── Init — load count for badge silently ────────────────────────────────
+  // ── Init — silent badge count ────────────────────────────────────────────
 
   loadAuth();
-  fetchNotes().then(n => { notes = n; updateBadge(); }).catch(() => {});
+  apiFetchNotes().then(n => { notes = n; updateBadge(); }).catch(() => {});
 })();
