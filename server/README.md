@@ -1,15 +1,34 @@
-# revealnotesserver
+# revealNotes Server
 
-To install dependencies:
+Backend for the revealNotes browser extension — a REST API that lets students attach community notes to any URL.
+
+## Prerequisites
+
+- [Bun](https://bun.sh) v1.0+
+
+## Setup
 
 ```bash
-bun install
+bun install        # install dependencies
+bun run db:migrate # create the SQLite database and apply migrations
 ```
 
-To run:
+## Running
 
 ```bash
-bun run index.ts
+bun run dev        # development mode with hot reload
+bun run start      # production
 ```
 
-This project was created using `bun init` in bun v1.3.13. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+The server starts on `http://localhost:3000` by default.
+
+- API docs (Swagger UI): `http://localhost:3000/docs`
+- OpenAPI spec: `http://localhost:3000/openapi.json`
+
+## Other Commands
+
+```bash
+bun test           # run all tests
+bun run db:studio  # open Drizzle Studio (DB GUI)
+bun run db:generate # regenerate migrations after schema changes
+```
