@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d0d1a;
+      color: #e8e8f0;
+    }
+    .header {
+      background: linear-gradient(135deg, #1a1a3e 0%, #2d1b69 100%);
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #2a2a50;
+    }
+    .logo { font-size: 22px; }
+    .header h1 { font-size: 15px; font-weight: 700; color: #fff; }
+    .header p { font-size: 11px; color: #9999cc; margin-top: 2px; }
+
+    .body { padding: 16px; }
+
+    /* Logged out state */
+    #auth-panel .tabs {
+      display: flex;
+      margin-bottom: 14px;
+      border-bottom: 1px solid #222244;
+    }
+    #auth-panel .tab {
+      flex: 1;
+      padding: 8px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #666699;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    #auth-panel .tab.active {
+      color: #7c6af7;
+      border-bottom-color: #7c6af7;
+    }
+
+    .form-group { margin-bottom: 10px; }
+    .form-group label { display: block; font-size: 11px; color: #9999cc; margin-bottom: 4px; }
+    .form-group input {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 7px;
+      border: 1px solid #222244;
+      background: #111130;
+      color: #e8e8f0;
+      font-size: 13px;
+    }
+    .form-group input:focus { outline: none; border-color: #7c6af7; }
+
+    .badge-note {
+      font-size: 11px;
+      color: #9999cc;
+      background: #111130;
+      border: 1px solid #222244;
+      border-radius: 6px;
+      padding: 7px 10px;
+      margin-bottom: 12px;
+    }
+    .badge-note span { color: #7c6af7; font-weight: 600; }
+
+    .btn {
+      width: 100%;
+      padding: 9px;
+      border-radius: 7px;
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary { background: #7c6af7; color: #fff; }
+    .btn-primary:hover { background: #6a58e0; }
+    .btn-secondary { background: #1a1a3e; color: #9999cc; margin-top: 8px; }
+    .btn-secondary:hover { background: #222255; }
+
+    .error { color: #ff6b6b; font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+    /* Logged in state */
+    #user-panel { display: none; }
+    .user-card {
+      background: #111130;
+      border: 1px solid #222244;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .user-avatar {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7c6af7, #2d1b69);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 700; color: #fff;
+      margin-bottom: 10px;
+    }
+    .user-email { font-size: 13px; color: #e8e8f0; font-weight: 600; }
+    .user-uni {
+      display: inline-block;
+      margin-top: 5px;
+      padding: 2px 8px;
+      background: #1a2a4a;
+      border: 1px solid #2a4a8a;
+      border-radius: 10px;
+      font-size: 11px;
+      color: #6ab0f7;
+      font-weight: 600;
+    }
+    .verified-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 5px;
+      margin-left: 6px;
+      font-size: 11px;
+      color: #4cdf82;
+    }
+
+    .divider { border: none; border-top: 1px solid #222244; margin: 12px 0; }
+
+    .open-btn {
+      width: 100%;
+      padding: 10px;
+      border-radius: 7px;
+      border: 1px solid #7c6af7;
+      background: transparent;
+      color: #7c6af7;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .open-btn:hover { background: #7c6af720; }
+
+    #loading { text-align: center; padding: 20px; color: #666699; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">📝</div>
+    <div>
+      <h1>Community Notes</h1>
+      <p>By verified students, for everyone</p>
+    </div>
+  </div>
+
+  <div class="body">
+    <div id="loading">Loading...</div>
+
+    <!-- Auth panel -->
+    <div id="auth-panel" style="display:none">
+      <div class="tabs">
+        <div class="tab active" data-tab="signin">Sign In</div>
+        <div class="tab" data-tab="signup">Sign Up</div>
+      </div>
+
+      <div id="signin-form">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="si-email" placeholder="you@university.edu" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="si-password" placeholder="••••••••" />
+        </div>
+        <button class="btn btn-primary" id="signin-btn">Sign In</button>
+      </div>
+
+      <div id="signup-form" style="display:none">
+        <div class="badge-note">
+          Requires a <span>.edu email</span> — your university identity stays private.
+        </div>
+        <div class="form-group">
+          <label>University Email (.edu)</label>
+          <input type="email" id="su-email" placeholder="you@university.edu" />
+        </div>
+        <div class="form-group">
+          <label>Password (min 6 chars)</label>
+          <input type="password" id="su-password" placeholder="••••••••" />
+        </div>
+        <button class="btn btn-primary" id="signup-btn">Create Account</button>
+      </div>
+
+      <div class="error" id="auth-error"></div>
+    </div>
+
+    <!-- Logged-in panel -->
+    <div id="user-panel">
+      <div class="user-card">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div class="user-email" id="user-email">—</div>
+        <span class="user-uni" id="user-uni">—</span>
+        <span class="verified-badge">✓ Student Verified</span>
+      </div>
+      <button class="open-btn" id="open-sidebar-btn">Open Notes on This Page</button>
+      <hr class="divider">
+      <button class="btn btn-secondary" id="signout-btn">Sign Out</button>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
