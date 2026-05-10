@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "CollegeAdvice Rater",
+  "version": "1.0",
+  "description": "AI-powered accuracy ratings for college advice on Reddit",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://www.reddit.com/*",
+    "https://api.anthropic.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.reddit.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

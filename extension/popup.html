@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 16px;
+      margin: 0;
+      background: #0f1117;
+      color: #e0e0e0;
+    }
+    h2 {
+      margin: 0 0 4px 0;
+      font-size: 15px;
+      color: #fff;
+    }
+    p {
+      margin: 0 0 12px 0;
+      font-size: 12px;
+      color: #888;
+    }
+    label {
+      font-size: 12px;
+      color: #aaa;
+      display: block;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1a1a2e;
+      color: #fff;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    button {
+      width: 100%;
+      padding: 9px;
+      border-radius: 6px;
+      border: none;
+      background: #5865f2;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #4752c4; }
+    #status {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #888;
+      text-align: center;
+      min-height: 16px;
+    }
+    .saved { color: #4caf50; }
+  </style>
+</head>
+<body>
+  <h2>CollegeAdvice Rater</h2>
+  <p>AI accuracy scores for Reddit college advice</p>
+
+  <label>Anthropic API Key</label>
+  <input type="password" id="apiKey" placeholder="sk-ant-..." />
+
+  <button id="save">Save Key</button>
+  <button id="analyze" style="margin-top:8px; background:#2d7d46;">Analyze This Page</button>
+
+  <div id="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
