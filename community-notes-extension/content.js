@@ -1,5 +1,4 @@
 (() => {
-  // Prevent double injection
   if (document.getElementById('cn-root')) return;
 
   const PAGE_URL = window.location.origin + window.location.pathname;
@@ -20,8 +19,7 @@
               value: { stringValue: PAGE_URL }
             }
           },
-          orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
-          limit: 50
+          limit: 100
         }
       })
     });
@@ -31,11 +29,13 @@
       .map(r => {
         const f = r.document.fields;
         return {
-          id: r.document.name,
+          docPath: r.document.name,
           body: f.body?.stringValue || '',
           university: f.university?.stringValue || '?',
           email: f.email?.stringValue || '',
-          createdAt: f.createdAt?.timestampValue || ''
+          createdAt: f.createdAt?.timestampValue || '',
+          upvotes: parseInt(f.upvotes?.integerValue || '0'),
+          upvotedBy: (f.upvotedBy?.arrayValue?.values || []).map(v => v.stringValue)
         };
       });
   }
@@ -53,7 +53,9 @@
           body:       { stringValue: body },
           university: { stringValue: user.university },
           email:      { stringValue: user.email },
-          createdAt:  { timestampValue: new Date().toISOString() }
+          createdAt:  { timestampValue: new Date().toISOString() },
+          upvotes:    { integerValue: '0' },
+          upvotedBy:  { arrayValue: { values: [] } }
         }
       })
     });
@@ -64,7 +66,44 @@
     return res.json();
   }
 
-  // ── DOM helpers ──────────────────────────────────────────────────────────
+  async function upvoteNote(docPath, user) {
+    const projectId = FB_PROJECT_ID;
+    const res = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.idToken}`
+        },
+        body: JSON.stringify({
+          writes: [{
+            transform: {
+              document: docPath,
+              fieldTransforms: [
+                {
+                  fieldPath: 'upvotes',
+                  increment: { integerValue: '1' }
+                },
+                {
+                  fieldPath: 'upvotedBy',
+                  appendMissingElements: {
+                    values: [{ stringValue: user.uid }]
+                  }
+                }
+              ]
+            }
+          }]
+        })
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || 'Failed to upvote');
+    }
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
 
   function timeAgo(iso) {
     if (!iso) return '';
@@ -78,75 +117,106 @@
   }
 
   function uniColor(uni) {
-    const colors = [
-      '#7c6af7','#4caf8a','#f7a74c','#f74c7c','#4cb8f7',
-      '#a74cf7','#f7d74c','#4cf7a7','#f74c4c','#4c7cf7'
-    ];
+    const colors = ['#7c6af7','#3ab8a0','#f5a623','#e05c8a','#4a9eda','#9b6af7','#50c878'];
     let hash = 0;
     for (const c of uni) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff;
     return colors[Math.abs(hash) % colors.length];
-  }
-
-  function renderNote(note) {
-    const color = uniColor(note.university);
-    const div = document.createElement('div');
-    div.className = 'cn-note';
-    div.innerHTML = `
-      <div class="cn-note-header">
-        <div class="cn-avatar" style="background:${color}">${note.university[0]}</div>
-        <div class="cn-meta">
-          <span class="cn-uni" style="color:${color}">${note.university}</span>
-          <span class="cn-time">${timeAgo(note.createdAt)}</span>
-        </div>
-      </div>
-      <div class="cn-body">${escapeHtml(note.body)}</div>
-    `;
-    return div;
   }
 
   function escapeHtml(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  // ── Build UI ─────────────────────────────────────────────────────────────
+  function sortNotes(notes, by) {
+    return [...notes].sort((a, b) =>
+      by === 'votes'
+        ? b.upvotes - a.upvotes
+        : new Date(b.createdAt) - new Date(a.createdAt)
+    );
+  }
+
+  // ── Render note card ─────────────────────────────────────────────────────
+
+  function renderNote(note, user) {
+    const color = uniColor(note.university);
+    const hasVoted = user && note.upvotedBy.includes(user.uid);
+    const canVote = user && !hasVoted;
+
+    const el = document.createElement('div');
+    el.className = 'cn-note';
+    el.innerHTML = `
+      <div class="cn-note-top">
+        <div class="cn-chip" style="background:${color}18;color:${color};border-color:${color}40">
+          ${note.university}
+        </div>
+        <span class="cn-time">${timeAgo(note.createdAt)}</span>
+      </div>
+      <div class="cn-body">${escapeHtml(note.body)}</div>
+      <div class="cn-note-footer">
+        <button class="cn-upvote ${hasVoted ? 'cn-voted' : ''} ${!user ? 'cn-disabled' : ''}"
+          data-path="${note.docPath}" title="${!user ? 'Sign in to vote' : hasVoted ? 'Already voted' : 'Upvote'}">
+          ▲ <span class="cn-vote-count">${note.upvotes}</span>
+        </button>
+        ${!user ? '<span class="cn-vote-hint">sign in to vote</span>' : ''}
+      </div>
+    `;
+
+    const btn = el.querySelector('.cn-upvote');
+    if (canVote) {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await upvoteNote(note.docPath, user);
+          note.upvotes++;
+          note.upvotedBy.push(user.uid);
+          btn.classList.add('cn-voted');
+          btn.querySelector('.cn-vote-count').textContent = note.upvotes;
+        } catch (e) {
+          btn.disabled = false;
+        }
+      });
+    }
+
+    return el;
+  }
+
+  // ── Build sidebar HTML ───────────────────────────────────────────────────
 
   const root = document.createElement('div');
   root.id = 'cn-root';
   root.innerHTML = `
     <div id="cn-toggle" title="Community Notes">
-      <span id="cn-toggle-icon">📝</span>
-      <span id="cn-count-badge" class="cn-hidden">0</span>
+      📝
+      <span id="cn-count-badge" class="cn-hidden"></span>
     </div>
+
     <div id="cn-sidebar">
-      <div id="cn-sidebar-inner">
-        <div id="cn-header">
-          <div id="cn-header-left">
-            <span id="cn-header-icon">📝</span>
-            <div>
-              <div id="cn-header-title">Community Notes</div>
-              <div id="cn-header-url">${window.location.hostname}</div>
-            </div>
-          </div>
-          <button id="cn-close">✕</button>
+      <div id="cn-header">
+        <div id="cn-header-info">
+          <span id="cn-header-title">Community Notes</span>
+          <span id="cn-header-host">${window.location.hostname}</span>
         </div>
+        <button id="cn-close">✕</button>
+      </div>
 
-        <div id="cn-notes-list">
-          <div class="cn-loading">Loading notes…</div>
+      <div id="cn-sort-bar">
+        <button class="cn-sort-btn cn-sort-active" data-sort="date">Recent</button>
+        <button class="cn-sort-btn" data-sort="votes">Top</button>
+        <span id="cn-note-count"></span>
+      </div>
+
+      <div id="cn-notes-list"></div>
+
+      <div id="cn-compose">
+        <div id="cn-compose-form">
+          <textarea id="cn-textarea" placeholder="Add context about this page…" maxlength="500"></textarea>
+          <div id="cn-compose-row">
+            <span id="cn-char-count">0 / 500</span>
+            <button id="cn-submit">Post</button>
+          </div>
         </div>
-
-        <div id="cn-compose">
-          <div id="cn-compose-inner">
-            <textarea id="cn-textarea" placeholder="Share what you know about this page…" maxlength="500"></textarea>
-            <div id="cn-compose-footer">
-              <span id="cn-char-count">0 / 500</span>
-              <button id="cn-submit">Post Note</button>
-            </div>
-          </div>
-          <div id="cn-login-prompt">
-            <div id="cn-login-icon">🎓</div>
-            <div id="cn-login-text">Sign in with your <strong>.edu email</strong> to add notes</div>
-            <div id="cn-login-sub">Click the extension icon to sign in</div>
-          </div>
+        <div id="cn-login-prompt">
+          🎓 <a id="cn-login-link">Sign in with .edu</a> to add notes
         </div>
       </div>
     </div>
@@ -155,97 +225,89 @@
 
   // ── State ────────────────────────────────────────────────────────────────
 
-  let sidebarOpen = false;
-  let currentUser = null;
+  let open = false;
+  let user = null;
   let notes = [];
+  let sortBy = 'date';
 
-  // ── Load auth state ──────────────────────────────────────────────────────
+  // ── Auth ─────────────────────────────────────────────────────────────────
 
-  function refreshAuth() {
-    chrome.storage.local.get('user', ({ user }) => {
-      currentUser = user || null;
-      renderCompose();
-    });
+  function loadAuth(cb) {
+    chrome.storage.local.get('user', ({ user: u }) => { user = u || null; cb && cb(); });
   }
 
-  chrome.storage.onChanged.addListener((changes) => {
-    if (changes.user) {
-      currentUser = changes.user.newValue || null;
-      renderCompose();
-    }
+  chrome.storage.onChanged.addListener(changes => {
+    if (changes.user) { user = changes.user.newValue || null; renderCompose(); }
   });
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  function renderNotesList() {
+  function renderList() {
     const list = document.getElementById('cn-notes-list');
-    if (notes.length === 0) {
-      list.innerHTML = `
-        <div class="cn-empty">
-          <div class="cn-empty-icon">🔍</div>
-          <div class="cn-empty-text">No notes yet for this page.</div>
-          <div class="cn-empty-sub">Be the first to add context.</div>
-        </div>`;
+    const sorted = sortNotes(notes, sortBy);
+    const countEl = document.getElementById('cn-note-count');
+    countEl.textContent = notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : '';
+
+    if (!sorted.length) {
+      list.innerHTML = `<div class="cn-empty">No notes yet — be the first.</div>`;
       return;
     }
     list.innerHTML = '';
-    notes.forEach(n => list.appendChild(renderNote(n)));
-  }
-
-  function updateCountBadge() {
-    const badge = document.getElementById('cn-count-badge');
-    if (notes.length > 0) {
-      badge.textContent = notes.length;
-      badge.classList.remove('cn-hidden');
-    } else {
-      badge.classList.add('cn-hidden');
-    }
+    sorted.forEach(n => list.appendChild(renderNote(n, user)));
   }
 
   function renderCompose() {
-    const compose = document.getElementById('cn-compose-inner');
+    const form = document.getElementById('cn-compose-form');
     const prompt = document.getElementById('cn-login-prompt');
-    if (currentUser) {
-      compose.style.display = 'flex';
-      prompt.style.display = 'none';
-    } else {
-      compose.style.display = 'none';
-      prompt.style.display = 'flex';
-    }
+    if (user) { form.style.display = 'flex'; prompt.style.display = 'none'; }
+    else       { form.style.display = 'none'; prompt.style.display = 'block'; }
+  }
+
+  function updateBadge() {
+    const b = document.getElementById('cn-count-badge');
+    if (notes.length) { b.textContent = notes.length; b.classList.remove('cn-hidden'); }
+    else b.classList.add('cn-hidden');
   }
 
   async function loadNotes() {
-    document.getElementById('cn-notes-list').innerHTML = '<div class="cn-loading">Loading notes…</div>';
+    document.getElementById('cn-notes-list').innerHTML = `<div class="cn-empty">Loading…</div>`;
     try {
       notes = await fetchNotes();
-      renderNotesList();
-      updateCountBadge();
-    } catch (e) {
-      document.getElementById('cn-notes-list').innerHTML = '<div class="cn-loading">Failed to load notes.</div>';
+      renderList();
+      updateBadge();
+    } catch {
+      document.getElementById('cn-notes-list').innerHTML = `<div class="cn-empty">Could not load notes.</div>`;
     }
   }
 
   // ── Sidebar open/close ───────────────────────────────────────────────────
 
   function openSidebar() {
-    sidebarOpen = true;
+    open = true;
     document.getElementById('cn-sidebar').classList.add('cn-open');
     document.getElementById('cn-toggle').classList.add('cn-active');
-    refreshAuth();
-    loadNotes();
+    loadAuth(() => { renderCompose(); loadNotes(); });
   }
 
   function closeSidebar() {
-    sidebarOpen = false;
+    open = false;
     document.getElementById('cn-sidebar').classList.remove('cn-open');
     document.getElementById('cn-toggle').classList.remove('cn-active');
   }
 
-  document.getElementById('cn-toggle').addEventListener('click', () => {
-    sidebarOpen ? closeSidebar() : openSidebar();
-  });
-
+  document.getElementById('cn-toggle').addEventListener('click', () => open ? closeSidebar() : openSidebar());
   document.getElementById('cn-close').addEventListener('click', closeSidebar);
+
+  // ── Sort ─────────────────────────────────────────────────────────────────
+
+  document.querySelectorAll('#cn-root .cn-sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#cn-root .cn-sort-btn').forEach(b => b.classList.remove('cn-sort-active'));
+      btn.classList.add('cn-sort-active');
+      sortBy = btn.dataset.sort;
+      renderList();
+    });
+  });
 
   // ── Post note ────────────────────────────────────────────────────────────
 
@@ -259,38 +321,30 @@
 
   submitBtn.addEventListener('click', async () => {
     const body = textarea.value.trim();
-    if (!body || !currentUser) return;
-
+    if (!body || !user) return;
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Posting…';
+    submitBtn.textContent = '…';
     try {
-      await postNote(body, currentUser);
+      await postNote(body, user);
       textarea.value = '';
       charCount.textContent = '0 / 500';
       await loadNotes();
     } catch (e) {
-      alert('Failed to post note: ' + e.message);
+      alert('Error: ' + e.message);
     } finally {
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Post Note';
+      submitBtn.textContent = 'Post';
     }
   });
 
   // ── Message from popup ───────────────────────────────────────────────────
 
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === 'TOGGLE_SIDEBAR') {
-      sidebarOpen ? closeSidebar() : openSidebar();
-    }
+  chrome.runtime.onMessage.addListener(msg => {
+    if (msg.type === 'TOGGLE_SIDEBAR') open ? closeSidebar() : openSidebar();
   });
 
-  // ── Init ─────────────────────────────────────────────────────────────────
+  // ── Init — load count for badge silently ────────────────────────────────
 
-  refreshAuth();
-
-  // Auto-load note count for badge without opening sidebar
-  fetchNotes().then(n => {
-    notes = n;
-    updateCountBadge();
-  }).catch(() => {});
+  loadAuth();
+  fetchNotes().then(n => { notes = n; updateBadge(); }).catch(() => {});
 })();
