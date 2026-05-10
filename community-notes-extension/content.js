@@ -3,50 +3,35 @@
 
   const PAGE_URL = window.location.origin + window.location.pathname;
 
-  // ── API ──────────────────────────────────────────────────────────────────
+  // ── API (proxied through background to avoid HTTP/HTTPS mixed content) ───
 
-  async function apiFetchNotes() {
-    const res = await fetch(`${API_BASE}/notes?url=${encodeURIComponent(PAGE_URL)}`);
-    if (!res.ok) throw new Error('Failed to load notes');
-    return res.json(); // Note[]
+  function callAPI(method, path, token, body) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: 'API_CALL', method, path, token, body },
+        res => {
+          if (!res || res.error) return reject(new Error(res?.error || 'Network error'));
+          if (!res.ok) return reject(new Error(res.data?.error || `Request failed (${res.status})`));
+          resolve(res.data);
+        }
+      );
+    });
   }
 
-  async function apiPostNote(token, body) {
-    const res = await fetch(`${API_BASE}/notes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ url: PAGE_URL, body })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to post note');
-    return data;
+  function apiFetchNotes() {
+    return callAPI('GET', `/notes?url=${encodeURIComponent(PAGE_URL)}`);
   }
 
-  async function apiVote(token, noteId, value) {
-    const res = await fetch(`${API_BASE}/notes/${noteId}/vote`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ value })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to vote');
+  function apiPostNote(token, body) {
+    return callAPI('POST', '/notes', token, { url: PAGE_URL, body });
   }
 
-  async function apiRemoveVote(token, noteId) {
-    const res = await fetch(`${API_BASE}/notes/${noteId}/vote`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to remove vote');
-    }
+  function apiVote(token, noteId, value) {
+    return callAPI('POST', `/notes/${noteId}/vote`, token, { value });
+  }
+
+  function apiRemoveVote(token, noteId) {
+    return callAPI('DELETE', `/notes/${noteId}/vote`, token);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
